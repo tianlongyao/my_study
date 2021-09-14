@@ -13,10 +13,7 @@ import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.jedis.JedisClientConfiguration;
 import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
-import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.data.redis.serializer.*;
 import org.tianly.redis.util.JsonCustomSerializer;
 import org.tianly.redis.util.RedisStringTemplateCustomSerializer;
 import redis.clients.jedis.JedisPoolConfig;
@@ -41,16 +38,15 @@ public class RedisTemplateConfig {
     @Value("${spring.redis.db}")
     private Integer db;
 
-
     private RedisConnectionFactory redisConnectionFactory;
 
     @PostConstruct
     public void iniConnectionFactory(){
-        redisConnectionFactory = myRedisConnectionFactory();
+        redisConnectionFactory = myRedisConnectionFactory(host,password,db);
     }
 
 
-    private JedisPoolConfig jedisPoolConfig(){
+    private static JedisPoolConfig jedisPoolConfig(){
         JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
         //池支持的最大连接数。 默认值 8。以前是1024
         jedisPoolConfig.setMaxTotal(50);
@@ -65,8 +61,7 @@ public class RedisTemplateConfig {
         return jedisPoolConfig;
     }
 
-    @Bean
-    public RedisConnectionFactory myRedisConnectionFactory() {
+    public static RedisConnectionFactory myRedisConnectionFactory(String host,String password,int db) {
         RedisStandaloneConfiguration redisStandaloneConfiguration = new RedisStandaloneConfiguration();
         redisStandaloneConfiguration.setPassword(RedisPassword.of(password));
         redisStandaloneConfiguration.setHostName(host);
@@ -80,7 +75,19 @@ public class RedisTemplateConfig {
         //读超时时间
         jpcb.and().readTimeout(Duration.ofSeconds(60));
         jpcb.and().connectTimeout(Duration.ofSeconds(60));
-        return new JedisConnectionFactory(redisStandaloneConfiguration, jpcb.build());
+        JedisConnectionFactory redisConnectionFactory = new JedisConnectionFactory(redisStandaloneConfiguration, jpcb.build());
+        redisConnectionFactory.afterPropertiesSet();
+        return redisConnectionFactory;
+    }
+    @Bean
+    public CacheManager cacheManager() {
+        RedisCacheConfiguration cacheConfiguration =
+                RedisCacheConfiguration.defaultCacheConfig()
+                        .entryTtl(Duration.ofDays(1))
+                        .disableCachingNullValues()
+                        .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new
+                                GenericJackson2JsonRedisSerializer()));
+        return RedisCacheManager.builder(redisConnectionFactory).cacheDefaults(cacheConfiguration).build();
     }
 
     @Bean
@@ -136,9 +143,6 @@ public class RedisTemplateConfig {
         redisTemplate.afterPropertiesSet();
         return redisTemplate;
     }
-
-
-    //2021.5.20 新增StringRedisTemplate
     @Bean
     public RedisTemplate redisStringTemplate(){
         RedisTemplate redisTemplate = new RedisTemplate();
@@ -154,20 +158,17 @@ public class RedisTemplateConfig {
         return  redisTemplate;
     }
 
-
-
-
-
     @Bean
-    public CacheManager cacheManager() {
-        JsonCustomSerializer serializer = new JsonCustomSerializer();
-        RedisCacheConfiguration configuration  = RedisCacheConfiguration.defaultCacheConfig();
-        configuration  =
-                configuration .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer));
-        RedisCacheManager cacheManager =
-                RedisCacheManager.builder(myRedisConnectionFactory()).cacheDefaults(configuration)
-                .build();
-        return cacheManager;
-    }
+    public RedisTemplate jsonRedisTemplate(){
+        RedisTemplate redisTemplate = new RedisTemplate();
+        redisTemplate.setConnectionFactory(redisConnectionFactory);
 
+        StringRedisSerializer keySerializer = new StringRedisSerializer();
+        Jackson2JsonRedisSerializer valueSerializer = new Jackson2JsonRedisSerializer(Object.class);
+        redisTemplate.setKeySerializer(keySerializer);
+        redisTemplate.setHashKeySerializer(keySerializer);
+        redisTemplate.setValueSerializer(valueSerializer);
+        redisTemplate.setHashValueSerializer(valueSerializer);
+        return  redisTemplate;
+    }
 }

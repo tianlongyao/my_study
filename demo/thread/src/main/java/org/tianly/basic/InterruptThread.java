@@ -1,5 +1,7 @@
 package org.tianly.basic;
 
+import java.lang.ref.SoftReference;
+
 /**
  * @ClassName: InterruptThread
  * @Description:
